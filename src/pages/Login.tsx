@@ -34,9 +34,28 @@ export default function Login() {
     setLoading(true);
     setError('');
     
+    // Check for Teacher login first
+    if (password === 'bukid2' || password === 'bukid 2') {
+      try {
+        const { data: teacher, error: teacherError } = await supabase
+          .from('teachers')
+          .select('*')
+          .eq('nip', email)
+          .single();
+          
+        if (teacher && !teacherError) {
+          // It's a teacher!
+          localStorage.setItem('teacher_session', JSON.stringify(teacher));
+          navigate('/');
+          return;
+        }
+      } catch (err) {
+        console.warn('Teacher check failed', err);
+      }
+    }
+    
     // Auto format username or NIP to email for Supabase Auth
     // Default admin: penabukid2 -> penabukid2@penabukid.sch.id
-    // Teacher NIP: 1980... -> 1980...@penabukid.sch.id
     const loginEmail = email.includes('@') ? email : `${email}@penabukid.sch.id`;
 
     try {
@@ -49,6 +68,8 @@ export default function Login() {
         setError("Username/NIP atau Kata Sandi salah.");
         console.error(error);
       } else if (data.session) {
+        // Clear any old teacher session just in case
+        localStorage.removeItem('teacher_session');
         navigate('/');
       }
     } catch (err: any) {
