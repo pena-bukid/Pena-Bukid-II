@@ -44,9 +44,13 @@ export default function Students() {
       }
     });
 
-    supabase.from('academic_years').select('id').eq('is_active', true).limit(1).then(({data}) => {
+    supabase.from('academic_years').select('*').order('start_date', {ascending: false}).then(({data}) => {
       if (data && data.length > 0) {
-        setActiveYearId(data[0].id);
+        setAcademicYears(data);
+        const active = data.find((y: any) => y.is_active);
+        const actId = active ? active.id : data[0].id;
+        setActiveYearId(actId);
+        setFormData(prev => ({ ...prev, academic_year: actId }));
       }
     });
   }, []);
@@ -212,7 +216,10 @@ export default function Students() {
               <button onClick={handleImport} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl shadow-sm text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors">
                 <FileSpreadsheet size={16} className="text-green-600" /> Import
               </button>
-              <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl shadow-md shadow-primary/30 text-sm font-bold hover:bg-primary-dark transition-colors animate-shimmer">
+              <button onClick={() => {
+                setFormData({ name: '', nisn: '', gender: 'L', class_name: classes[0] || 'Kelas 1', academic_year: activeYearId });
+                setShowAddModal(true);
+              }} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl shadow-md shadow-primary/30 text-sm font-bold hover:bg-primary-dark transition-colors animate-shimmer">
                 <Plus size={16} /> Tambah Murid
               </button>
             </>

@@ -7,7 +7,7 @@ import html2canvas from 'html2canvas';
 import { cn } from '../lib/utils';
 
 // Reusable component for the physical card size (55mm x 90mm)
-const StudentCard = ({ student, cardRef, onSelect, isSelected, selectable }: any) => (
+const StudentCard = ({ student, cardRef, onSelect, isSelected, selectable, schoolName }: any) => (
   <div 
     onClick={() => selectable && onSelect && onSelect(student.id)}
     ref={cardRef}
@@ -32,8 +32,7 @@ const StudentCard = ({ student, cardRef, onSelect, isSelected, selectable }: any
     
     {/* Card Design (Red Elegant Theme) */}
     <div className="h-[25mm] bg-primary rounded-b-[30px] flex flex-col items-center pt-[3mm] relative">
-       <div className="text-white text-[10px] font-bold uppercase tracking-wider">UPT SD Negeri</div>
-       <div className="text-white text-[8px] opacity-90">Bugulkidul II</div>
+       <div className="text-white text-[10px] font-bold uppercase tracking-wider text-center px-1 truncate w-full">{schoolName || 'NAMA SEKOLAH'}</div>
        
        {/* Avatar overlap */}
        <div className="absolute -bottom-[6mm] w-[14mm] h-[14mm] bg-white rounded-full p-[2px] shadow-sm">
@@ -74,9 +73,18 @@ export default function GenerateQR() {
   const [previewStudents, setPreviewStudents] = useState<any[]>([]);
 
   const [students, setStudents] = useState<any[]>([]);
+  const [schoolIdentity, setSchoolIdentity] = useState({
+    schoolName: 'UPT SD Negeri Bugulkidul II'
+  });
   const [activeYearId, setActiveYearId] = useState('');
 
   useEffect(() => {
+    const storedIdentity = localStorage.getItem('school_identity');
+    if (storedIdentity) {
+      try {
+        setSchoolIdentity(JSON.parse(storedIdentity));
+      } catch (e) {}
+    }
     supabase.from('academic_years').select('id').eq('is_active', true).limit(1).then(({data}) => {
       if (data && data.length > 0) {
         setActiveYearId(data[0].id);
@@ -219,9 +227,9 @@ export default function GenerateQR() {
             onChange={(e) => setSelectedClass(e.target.value)}
             className="px-4 py-2.5 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-primary/20 text-sm font-medium min-w-[150px]"
           >
-            <option value="6A">Kelas 6A</option>
-            <option value="6B">Kelas 6B</option>
-            <option value="5A">Kelas 5A</option>
+            {classes.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
           </select>
         </div>
 
