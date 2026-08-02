@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { 
   Users, UserCheck, UserX, Clock, Calendar, 
-  ChevronRight, Activity, TrendingUp, Bell
+  ChevronRight, Activity, TrendingUp, Bell, X
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -25,8 +25,13 @@ ChartJS.register(
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('hari_ini');
-  const [statsData, setStatsData] = useState({ total: 0, hadir: 0, sakitIzin: 0, tanpaKeterangan: 0 });
+  const [statsData, setStatsData] = useState({ total: 0, hadir: 0, tidakHadir: 0 });
   const [recentScans, setRecentScans] = useState<any[]>([]);
+  const [chartDataState, setChartDataState] = useState<any>(null);
+  const [showClassDetail, setShowClassDetail] = useState(false);
+  const [classStats, setClassStats] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -35,50 +40,104 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     const today = new Date().toISOString().split('T')[0];
     
-    // Total Murid
-    const { count: total } = await supabase.from('students').select('*', { count: 'exact', head: true });
+    // Total Murid & class details
+    const { data: studentsData } = await supabase.from('students').select('id, class_name');
+    const total = studentsData?.length || 0;
     
     // Hadir Hari Ini
-    const { count: hadir } = await supabase.from('attendance').select('*', { count: 'exact', head: true }).eq('date', today).eq('status', 'Hadir');
-    
-    // Sakit/Izin
-    const { count: sakitIzin } = await supabase.from('attendance').select('*', { count: 'exact', head: true }).eq('date', today).in('status', ['Sakit', 'Izin']);
-    
-    // Tanpa Keterangan
-    const { count: tanpaKeterangan } = await supabase.from('attendance').select('*', { count: 'exact', head: true }).eq('date', today).eq('status', 'Alfa');
-    
+    const { data: attendanceToday } = await supabase.from('attendance').select('student_id, status, notes').eq('date', today);
+    const hadirData = (attendanceToday || []).filter(a => a.status === 'Hadir' || a.status === 'Terlambat');
+    const hadir = hadirData.length;
+    const tidakHadir = total - hadir;
+
     setStatsData({
-      total: total || 0,
-      hadir: hadir || 0,
-      sakitIzin: sakitIzin || 0,
-      tanpaKeterangan: tanpaKeterangan || 0
+      total,
+      hadir,
+      tidakHadir
     });
+
+    // Calculate class stats
+    if (studentsData) {
+      const classMap: any = {};
+      studentsData.forEach(s => {
+        if (!classMap[s.class_name]) classMap[s.class_name] = { total: 0, hadir: 0 };
+        classMap[s.class_name].total++;
+      });
+      hadirData.forEach(a => {
+        const student = studentsData.find(s => s.id === a.student_id);
+        if (student && classMap[student.class_name]) {
+          classMap[student.class_name].hadir++;
+        }
+      });
+      const cs = Object.keys(classMap).map(k => ({
+        class_name: k,
+        total: classMap[k].total,
+        hadir: classMap[k].hadir,
+        tidakHadir: classMap[k].total - classMap[k].hadir
+      })).sort((a, b) => a.class_name.localeCompare(b.class_name));
+      setClassStats(cs);
+    }
+
+    // Process notifications (Teacher scans)
+    if (attendanceToday) {
+      const teacherScans: any = {};
+      attendanceToday.forEach(a => {
+        if (a.notes && a.notes.startsWith('Discan oleh: ')) {
+          const teacherName = a.notes.replace('Discan oleh: ', '');
+          if (!teacherScans[teacherName]) teacherScans[teacherName] = 0;
+          teacherScans[teacherName]++;
+        }
+      });
+      const notifs = Object.keys(teacherScans).map(t => ({
+        id: Math.random().toString(),
+        message: `${t} telah melakukan presensi masuk pada ${teacherScans[t]} murid hari ini`,
+        time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+      }));
+      setNotifications(notifs);
+    }
 
     // Recent Scans
     const { data: recent } = await supabase.from('attendance').select('*, students(name, class_name)').eq('date', today).order('created_at', { ascending: false }).limit(5);
     if (recent) setRecentScans(recent);
+
+    // Chart Data (7 days)
+    const d = new Date();
+    const past7Days = [];
+    const labels = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(d);
+      date.setDate(date.getDate() - i);
+      past7Days.push(date.toISOString().split('T')[0]);
+      labels.push(date.toLocaleDateString('id-ID', { weekday: 'short' }));
+    }
+    
+    const { data: historyData } = await supabase.from('attendance').select('date, status').in('date', past7Days);
+    const dailyHadir = past7Days.map(dateStr => {
+      const dayData = (historyData || []).filter(h => h.date === dateStr);
+      const hadirCount = dayData.filter(h => h.status === 'Hadir' || h.status === 'Terlambat').length;
+      return total === 0 ? 0 : Math.round((hadirCount / total) * 100);
+    });
+
+    setChartDataState({
+      labels,
+      datasets: [
+        {
+          label: 'Kehadiran (%)',
+          data: dailyHadir,
+          borderColor: '#D32F2F',
+          backgroundColor: 'rgba(211, 47, 47, 0.1)',
+          fill: true,
+          tension: 0.4,
+        }
+      ]
+    });
   };
 
   const stats = [
-    { title: 'Total Murid', value: statsData.total.toString(), icon: Users, color: 'bg-blue-500' },
+    { title: 'Total Murid', value: statsData.total.toString(), icon: Users, color: 'bg-blue-500', onClick: () => setShowClassDetail(true) },
     { title: 'Hadir Hari Ini', value: statsData.hadir.toString(), icon: UserCheck, color: 'bg-accent-green' },
-    { title: 'Sakit/Izin', value: statsData.sakitIzin.toString(), icon: Activity, color: 'bg-accent-orange' },
-    { title: 'Tanpa Keterangan', value: statsData.tanpaKeterangan.toString(), icon: UserX, color: 'bg-primary' },
+    { title: 'Tidak Hadir Hari Ini', value: statsData.tidakHadir.toString(), icon: UserX, color: 'bg-primary' },
   ];
-
-  const chartData = {
-    labels: ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'],
-    datasets: [
-      {
-        label: 'Kehadiran (%)',
-        data: [96, 95, 98, 97, 95, 99],
-        borderColor: '#D32F2F',
-        backgroundColor: 'rgba(211, 47, 47, 0.1)',
-        fill: true,
-        tension: 0.4,
-      }
-    ]
-  };
 
   const chartOptions = {
     responsive: true,
@@ -87,13 +146,12 @@ export default function Dashboard() {
       legend: { display: false },
     },
     scales: {
-      y: { min: 80, max: 100 }
+      y: { min: 0, max: 100 }
     }
   };
 
-
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto pb-10">
       {/* Header Area */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -104,23 +162,47 @@ export default function Dashboard() {
           </p>
         </div>
         
-        <div className="flex gap-2">
-          <button className="relative p-2.5 bg-white rounded-xl shadow-sm border border-gray-100 text-gray-600 hover:text-primary transition-colors">
+        <div className="flex gap-2 relative">
+          <button 
+            onClick={() => setShowNotifications(!showNotifications)}
+            className="relative p-2.5 bg-white rounded-xl shadow-sm border border-gray-100 text-gray-600 hover:text-primary transition-colors"
+          >
             <Bell size={20} />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full ring-2 ring-white"></span>
+            {notifications.length > 0 && <span className="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full ring-2 ring-white"></span>}
           </button>
+
+          {showNotifications && (
+            <div className="absolute right-0 top-12 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+              <div className="p-4 border-b border-gray-100 bg-gray-50">
+                <h3 className="font-bold text-gray-900 text-sm">Notifikasi</h3>
+              </div>
+              <div className="max-h-80 overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="p-4 text-center text-gray-500 text-sm">Belum ada notifikasi hari ini</div>
+                ) : (
+                  notifications.map(n => (
+                    <div key={n.id} className="p-4 border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                      <p className="text-sm text-gray-800 leading-relaxed">{n.message}</p>
+                      <p className="text-xs text-gray-400 mt-2">{n.time}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {stats.map((stat, idx) => (
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: idx * 0.1 }}
             key={idx} 
-            className="bg-white p-4 md:p-5 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between relative overflow-hidden group"
+            onClick={stat.onClick}
+            className={`bg-white p-4 md:p-5 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between relative overflow-hidden group ${stat.onClick ? 'cursor-pointer hover:border-primary/30 hover:shadow-md' : ''}`}
           >
             <div className="flex justify-between items-start mb-4">
               <div className={`p-2.5 rounded-2xl text-white shadow-md ${stat.color}`}>
@@ -142,7 +224,7 @@ export default function Dashboard() {
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
+          transition={{ delay: 0.3 }}
           className="lg:col-span-2 bg-white p-5 rounded-3xl shadow-sm border border-gray-100"
         >
           <div className="flex justify-between items-center mb-6">
@@ -153,7 +235,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="h-[250px] w-full relative">
-            <Line data={chartData} options={chartOptions} />
+            {chartDataState ? <Line data={chartDataState} options={chartOptions} /> : <div className="flex items-center justify-center h-full text-gray-400 font-bold text-sm">Memuat data...</div>}
           </div>
         </motion.div>
 
@@ -188,9 +270,9 @@ export default function Dashboard() {
                       {scan.time_out ? ` - ${scan.time_out}` : ''}
                     </p>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                      scan.status === 'hadir' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                      scan.status === 'Hadir' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
                     }`}>
-                      {scan.status === 'hadir' ? 'Hadir' : 'Terlambat'}
+                      {scan.status === 'Hadir' ? 'Hadir' : 'Terlambat'}
                     </span>
                   </div>
                 </div>
@@ -199,6 +281,45 @@ export default function Dashboard() {
           </div>
         </motion.div>
       </div>
+
+      {/* Class Detail Modal */}
+      {showClassDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={() => setShowClassDetail(false)}></div>
+          <div className="bg-white rounded-3xl shadow-2xl relative z-10 w-full max-w-2xl overflow-hidden border border-gray-100 animate-in fade-in zoom-in duration-200">
+            <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h3 className="font-bold text-gray-900 text-lg">Rincian Kehadiran Per Kelas</h3>
+              <button 
+                onClick={() => setShowClassDetail(false)}
+                className="p-2 text-gray-400 hover:text-gray-600 bg-white rounded-full shadow-sm"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 max-h-[60vh] overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {classStats.map((cs) => (
+                  <div key={cs.class_name} className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm flex flex-col gap-2">
+                    <h4 className="font-bold text-gray-900">{cs.class_name}</h4>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500 font-medium">Total Murid</span>
+                      <span className="font-bold text-gray-800 text-sm">{cs.total}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500 font-medium">Hadir</span>
+                      <span className="font-bold text-green-600 text-sm">{cs.hadir}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500 font-medium">Tidak Hadir</span>
+                      <span className="font-bold text-red-500 text-sm">{cs.tidakHadir}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

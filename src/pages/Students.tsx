@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Plus, Filter, Edit2, Trash2, Download, History, X, FileSpreadsheet } from 'lucide-react';
+import { Search, Plus, Filter, Edit2, Trash2, Download, History, X, FileSpreadsheet, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../lib/supabase';
 
@@ -24,7 +24,7 @@ export default function Students() {
   const [isTeacher, setIsTeacher] = useState(false);
   const [classes, setClasses] = useState<string[]>([]);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [importText, setImportText] = useState('');
+  const [importFile, setImportFile] = useState<File | null>(null);
   const [activeYearId, setActiveYearId] = useState('');
   const [academicYears, setAcademicYears] = useState<any[]>([]);
 
@@ -94,50 +94,57 @@ export default function Students() {
   };
 
   const processImport = async () => {
-    if (!importText.trim()) return;
+    if (!importFile) return;
     
-    // Parse CSV (simple split by newline and comma)
-    const lines = importText.trim().split('\n');
-    // Skip header line if it contains 'NISN'
-    const startIndex = lines[0].toLowerCase().includes('nisn') ? 1 : 0;
-    
-    const newStudents = [];
-    for (let i = startIndex; i < lines.length; i++) {
-      const parts = lines[i].split(',').map(p => p.trim());
-      if (parts.length >= 4) {
-        let ayId = activeYearId || null;
-        if (parts[4]) {
-          const match = academicYears.find(y => y.name.toLowerCase() === parts[4].toLowerCase());
-          if (match) ayId = match.id;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const text = e.target?.result as string;
+      if (!text) return;
+      
+      // Parse CSV (simple split by newline and comma)
+      const lines = text.trim().split('\n');
+      // Skip header line if it contains 'NISN'
+      const startIndex = lines[0].toLowerCase().includes('nisn') ? 1 : 0;
+      
+      const newStudents = [];
+      for (let i = startIndex; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(p => p.trim());
+        if (parts.length >= 4) {
+          let ayId = activeYearId || null;
+          if (parts[4]) {
+            const match = academicYears.find(y => y.name.toLowerCase() === parts[4].toLowerCase());
+            if (match) ayId = match.id;
+          }
+          newStudents.push({
+            nisn: parts[0],
+            name: parts[1],
+            gender: parts[2] === 'P' ? 'P' : 'L',
+            class_name: parts[3],
+            academic_year: ayId,
+            status: 'Aktif'
+          });
         }
-        newStudents.push({
-          nisn: parts[0],
-          name: parts[1],
-          gender: parts[2] === 'P' ? 'P' : 'L',
-          class_name: parts[3],
-          academic_year: ayId,
-          status: 'Aktif'
-        });
       }
-    }
-    
-    if (newStudents.length > 0) {
-      try {
-        const { data, error } = await supabase.from('students').insert(newStudents).select();
-        if (error) {
-          console.warn('DB error, using local fallback', error.message);
-          const localStudents = newStudents.map(s => ({ ...s, id: Math.random().toString(), created_at: new Date().toISOString() }));
-          setStudents([...localStudents, ...students]);
-        } else if (data) {
-          setStudents([...data, ...students]);
+      
+      if (newStudents.length > 0) {
+        try {
+          const { data, error } = await supabase.from('students').insert(newStudents).select();
+          if (error) {
+            console.warn('DB error, using local fallback', error.message);
+            const localStudents = newStudents.map(s => ({ ...s, id: Math.random().toString(), created_at: new Date().toISOString() }));
+            setStudents(prev => [...localStudents, ...prev]);
+          } else if (data) {
+            setStudents(prev => [...data, ...prev]);
+          }
+        } catch (err) {
+          console.error(err);
         }
-      } catch (err) {
-        console.error(err);
       }
-    }
-    
-    setImportText('');
-    setShowImportModal(false);
+      
+      setImportFile(null);
+      setShowImportModal(false);
+    };
+    reader.readAsText(importFile);
   };
 
   const handleSaveStudent = async () => {
@@ -475,17 +482,26 @@ export default function Students() {
                 </div>
                 
                 <div className="space-y-1.5">
-                  <label className="text-sm font-bold text-gray-700 ml-1">Data CSV / Excel (Paste disini)</label>
-                  <textarea 
-                    value={importText}
-                    onChange={(e) => setImportText(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm font-mono"
-                    rows={8}
-                    placeholder="Contoh:&#10;1234567890, Budi Santoso, L, Kelas 1, 2024/2025&#10;0987654321, Siti Aminah, P, Kelas 2, 2024/2025"
-                  ></textarea>
+                  <label className="text-sm font-bold text-gray-700 ml-1">Upload File CSV</label>
+                  <input 
+                    type="file"
+                    accept=".csv"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        setImportFile(e.target.files[0]);
+                      } else {
+                        setImportFile(null);
+                      }
+                    }}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                  />
+                  {importFile && (
+                    <p className="text-xs text-green-600 mt-2 ml-1 font-medium flex items-center gap-1">
+                      <Check size={14} /> File terpilih: {importFile.name}
+                    </p>
+                  )}
                 </div>
               </div>
-
               <div className="p-4 border-t border-gray-100 flex justify-end gap-2 bg-gray-50/50">
                 <button 
                   onClick={() => setShowImportModal(false)} 
@@ -495,7 +511,7 @@ export default function Students() {
                 </button>
                 <button 
                   onClick={processImport} 
-                  disabled={!importText.trim()}
+                  disabled={!importFile}
                   className="px-5 py-2.5 text-sm font-bold text-white bg-primary rounded-xl hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   <FileSpreadsheet size={18} />

@@ -99,12 +99,61 @@ export default function StudentDetail() {
 
   if (!student) return <div className="p-8 text-center text-gray-500">Memuat data murid...</div>;
 
-  // Mock Chart Data
+  const filteredHistory = history.filter(record => {
+    const date = new Date(record.date);
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const y = String(date.getFullYear());
+    return m === selectedMonth && y === selectedYear;
+  });
+
+  const statusCounts = {
+    'Hadir': 0,
+    'Sakit': 0,
+    'Izin': 0,
+    'Alfa': 0,
+    'Terlambat': 0
+  };
+
+  const weeklyTrend = [
+    { hadir: 0, absen: 0 },
+    { hadir: 0, absen: 0 },
+    { hadir: 0, absen: 0 },
+    { hadir: 0, absen: 0 },
+    { hadir: 0, absen: 0 }
+  ];
+
+  filteredHistory.forEach(record => {
+    if (statusCounts[record.status as keyof typeof statusCounts] !== undefined) {
+      statusCounts[record.status as keyof typeof statusCounts]++;
+    }
+    
+    const date = new Date(record.date);
+    const day = date.getDate();
+    const weekIndex = Math.floor((day - 1) / 7);
+    if (weekIndex >= 0 && weekIndex < 5) {
+      if (record.status === 'Hadir' || record.status === 'Terlambat') {
+        weeklyTrend[weekIndex].hadir++;
+      } else {
+        weeklyTrend[weekIndex].absen++;
+      }
+    }
+  });
+
+  const totalDays = Object.values(statusCounts).reduce((a, b) => a + b, 0);
+  const totalHadir = statusCounts['Hadir'] + statusCounts['Terlambat'];
+  const percentage = totalDays === 0 ? 0 : Math.round((totalHadir / totalDays) * 100);
+
   const attendanceStats = {
     labels: ['Hadir', 'Sakit', 'Izin', 'Alfa', 'Terlambat'],
     datasets: [
       {
-        data: [20, 1, 0, 0, 1],
+        data: [
+          statusCounts['Hadir'],
+          statusCounts['Sakit'],
+          statusCounts['Izin'],
+          statusCounts['Alfa'],
+          statusCounts['Terlambat']
+        ],
         backgroundColor: [
           'rgba(34, 197, 94, 0.8)', // Green
           'rgba(249, 115, 22, 0.8)', // Orange
@@ -118,27 +167,20 @@ export default function StudentDetail() {
   };
 
   const monthlyTrendData = {
-    labels: ['Mg 1', 'Mg 2', 'Mg 3', 'Mg 4'],
+    labels: ['Mg 1', 'Mg 2', 'Mg 3', 'Mg 4', 'Mg 5'],
     datasets: [
       {
         label: 'Hadir',
-        data: [5, 4, 5, 6], // example data
+        data: weeklyTrend.map(w => w.hadir),
         backgroundColor: 'rgba(34, 197, 94, 0.8)',
       },
       {
         label: 'Sakit/Izin/Alfa',
-        data: [0, 1, 0, 0], // example data
+        data: weeklyTrend.map(w => w.absen),
         backgroundColor: 'rgba(239, 68, 68, 0.8)',
       }
     ],
   };
-
-  const filteredHistory = history.filter(record => {
-    const date = new Date(record.date);
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const y = String(date.getFullYear());
-    return m === selectedMonth && y === selectedYear;
-  });
 
   const selectedMonthLabel = availableMonths.find(m => m.month === selectedMonth && m.year === selectedYear)?.label || `${selectedMonth} ${selectedYear}`;
 
@@ -182,7 +224,7 @@ export default function StudentDetail() {
           <div className="pt-14 p-6 space-y-4">
             <div>
               <h2 className="text-xl font-bold text-gray-900 leading-tight">{student.name}</h2>
-              <p className="text-sm text-gray-500 mt-1">NISN: {student.nisn} | NIS: {student.nis}</p>
+              <p className="text-sm text-gray-500 mt-1">NISN: {student.nisn}</p>
             </div>
             
             <div className="flex gap-2">
@@ -190,26 +232,14 @@ export default function StudentDetail() {
                 Kelas {student.class_name}
               </span>
               <span className="px-3 py-1 bg-green-50 text-green-700 text-xs font-bold rounded-lg border border-green-100">
-                {student.status}
+                Status: Aktif
               </span>
             </div>
 
             <div className="pt-4 border-t border-gray-100 space-y-3 text-sm">
               <div className="flex flex-col">
                 <span className="text-gray-500 text-xs font-medium">Jenis Kelamin</span>
-                <span className="text-gray-900 font-medium">{student.gender}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-gray-500 text-xs font-medium">Nama Wali</span>
-                <span className="text-gray-900 font-medium">{student.parent_name}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-gray-500 text-xs font-medium">No. HP Wali</span>
-                <span className="text-gray-900 font-medium">{student.parent_phone}</span>
-              </div>
-              <div className="flex flex-col">
-                <span className="text-gray-500 text-xs font-medium">Alamat</span>
-                <span className="text-gray-900 font-medium leading-relaxed">{student.address}</span>
+                <span className="text-gray-900 font-medium">{student.gender === 'L' ? 'Laki-laki' : student.gender === 'P' ? 'Perempuan' : student.gender}</span>
               </div>
             </div>
           </div>
@@ -228,19 +258,27 @@ export default function StudentDetail() {
             >
               <h3 className="font-bold text-gray-900 text-sm mb-4 self-start w-full">Persentase Kehadiran</h3>
               <div className="h-[180px] w-full flex justify-center relative">
-                <Doughnut 
-                  data={attendanceStats} 
-                  options={{ 
-                    cutout: '75%',
-                    plugins: { legend: { position: 'right', labels: { boxWidth: 10, usePointStyle: true, font: { size: 11 } } } } 
-                  }} 
-                />
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none -ml-[80px]">
-                  <div className="text-center">
-                    <span className="text-2xl font-bold text-gray-900">95%</span>
-                    <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Hadir</p>
+                {totalDays === 0 ? (
+                  <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-gray-400">
+                    Belum ada data
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <Doughnut 
+                      data={attendanceStats} 
+                      options={{ 
+                        cutout: '75%',
+                        plugins: { legend: { position: 'right', labels: { boxWidth: 10, usePointStyle: true, font: { size: 11 } } } }
+                      }} 
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none -ml-[80px]">
+                      <div className="text-center">
+                        <span className="text-2xl font-bold text-gray-900">{percentage}%</span>
+                        <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">Hadir</p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </motion.div>
 
@@ -252,19 +290,25 @@ export default function StudentDetail() {
             >
               <h3 className="font-bold text-gray-900 text-sm mb-4">Tren Mingguan</h3>
               <div className="h-[180px] w-full">
-                <Bar 
-                  data={monthlyTrendData} 
-                  options={{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                      x: { stacked: true, grid: { display: false } },
-                      y: { stacked: true, beginAtZero: true, max: 6, ticks: { stepSize: 1 } }
-                    },
-                    plugins: { legend: { display: false } },
-                    elements: { bar: { borderRadius: 4 } }
-                  }} 
-                />
+                {totalDays === 0 ? (
+                  <div className="h-full w-full flex items-center justify-center text-sm font-bold text-gray-400">
+                    Belum ada data
+                  </div>
+                ) : (
+                  <Bar 
+                    data={monthlyTrendData} 
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      scales: {
+                        x: { stacked: true, grid: { display: false } },
+                        y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } }
+                      },
+                      plugins: { legend: { display: false } },
+                      elements: { bar: { borderRadius: 4 } }
+                    }} 
+                  />
+                )}
               </div>
             </motion.div>
           </div>
