@@ -16,13 +16,39 @@ const navItems = [
 
 export default function AppLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    checkSession();
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        navigate('/login');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  const checkSession = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      navigate('/login');
+    } else {
+      setIsLoading(false);
+    }
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login');
   };
+
+  if (isLoading) {
+    return <div className="h-screen flex items-center justify-center bg-gray-50 text-gray-500 font-medium">Memuat...</div>;
+  }
 
   return (
     <div className="flex h-screen bg-background overflow-hidden font-sans">

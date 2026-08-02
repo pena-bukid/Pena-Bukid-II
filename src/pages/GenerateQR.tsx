@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from "react";
+import { supabase } from "../lib/supabase";
 import { QRCodeSVG } from 'qrcode.react';
 import { Download, Printer, Check, Search, FileDown, LayoutGrid, X } from 'lucide-react';
 import { jsPDF } from 'jspdf';
@@ -62,8 +63,6 @@ const StudentCard = ({ student, cardRef, onSelect, isSelected, selectable }: any
   </div>
 );
 
-import { supabase } from '../lib/supabase';
-import React, { useState, useEffect, useRef } from 'react';
 
 export default function GenerateQR() {
   const [selectedClass, setSelectedClass] = useState('6A');
