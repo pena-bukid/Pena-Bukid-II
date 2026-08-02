@@ -182,7 +182,7 @@ export default function Dashboard() {
                     <p className="text-xs text-gray-500">Kelas {scan.students?.class_name}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-sm text-gray-900">{scan.time_in}</p>
+                    <p className="font-bold text-sm text-gray-900">{scan.time_in}{scan.time_out ? ` - ${scan.time_out}` : ''}</p>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                       scan.status === 'hadir' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
                     }`}>

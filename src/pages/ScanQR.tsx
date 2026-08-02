@@ -68,24 +68,81 @@ export default function ScanQR() {
           }
           
           if (student) {
-            const today = new Date().toISOString().split('T')[0];
-            const time = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false });
+            const now = new Date();
             
-            // Note: In real app, calculate status based on rules. Hardcoded to Hadir for demo.
-            await supabase.from('attendance').insert([{
-              student_id: student.id,
-              date: today,
-              time_in: time,
-              status: 'Hadir'
-            }]);
+            // Format local date YYYY-MM-DD
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const today = `${year}-${month}-${day}`;
+            
+            const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+            
+            try {
+              // Check if already scanned today
+              const { data: existingAttendance, error: selectError } = await supabase
+                .from('attendance')
+                .select('*')
+                .eq('student_id', student.id)
+                .eq('date', today)
+                .maybeSingle();
+                
+              if (selectError) console.error("Select error:", selectError);
 
-            setScanResult({
-              success: true,
-              studentName: student.name,
-              className: student.class_name,
-              time: time,
-              message: 'Presensi berhasil dicatat.'
-            });
+              let message = 'Presensi berhasil dicatat.';
+              let hasError = false;
+
+              if (existingAttendance) {
+                // Update time_out for subsequent scans
+                const { error: updateError } = await supabase
+                  .from('attendance')
+                  .update({ time_out: time })
+                  .eq('id', existingAttendance.id);
+                  
+                if (updateError) {
+                  console.error("Update error:", updateError);
+                  hasError = true;
+                } else {
+                  message = 'Waktu pulang (scan terakhir) diperbarui.';
+                }
+              } else {
+                // Insert time_in for first scan
+                const { error: insertError } = await supabase.from('attendance').insert([{
+                  student_id: student.id,
+                  date: today,
+                  time_in: time,
+                  status: 'Hadir'
+                }]);
+                
+                if (insertError) {
+                  console.error("Insert error:", insertError);
+                  hasError = true;
+                } else {
+                  message = 'Waktu masuk (scan pertama) dicatat.';
+                }
+              }
+
+              if (hasError) {
+                setScanResult({
+                  success: false,
+                  message: 'Gagal menyimpan data ke database.'
+                });
+              } else {
+                setScanResult({
+                  success: true,
+                  studentName: student.name,
+                  className: student.class_name,
+                  time: time,
+                  message: message
+                });
+              }
+            } catch (dbError) {
+              console.error("DB Operation failed:", dbError);
+              setScanResult({
+                success: false,
+                message: 'Gagal menyimpan data ke database.'
+              });
+            }
           } else {
             setScanResult({
               success: false,
