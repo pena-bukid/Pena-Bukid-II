@@ -17,6 +17,19 @@ export default function ScanQR() {
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isProcessingRef = useRef(false);
 
+  const [scannerName, setScannerName] = useState('Admin');
+  const [recentScans, setRecentScans] = useState<any[]>([]);
+
+  useEffect(() => {
+    const ts = localStorage.getItem('teacher_session');
+    if (ts) {
+      const teacher = JSON.parse(ts);
+      if (teacher.name) {
+        setScannerName(teacher.name);
+      }
+    }
+  }, []);
+
   // Sound effects
   const playSuccessSound = () => {
     try {
@@ -77,8 +90,40 @@ export default function ScanQR() {
             const today = `${year}-${month}-${day}`;
             
             const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-            
-            try {
+                        try {
+              const timeSettingsStr = localStorage.getItem('time_settings');
+              const timeSettings = timeSettingsStr ? JSON.parse(timeSettingsStr) : {
+                jamMasuk: '07:00',
+                jamPulang: '12:00',
+                jamPulangConfigs: [],
+                toleransiKeterlambatan: 15
+              };
+
+              const scanTimeMins = now.getHours() * 60 + now.getMinutes();
+              const [inH, inM] = (timeSettings.jamMasuk || '07:00').split(':').map(Number);
+              
+              // Determine jamPulang for this student's class
+              let jamPulang = timeSettings.jamPulang || '12:00';
+              if (timeSettings.jamPulangConfigs && timeSettings.jamPulangConfigs.length > 0) {
+                const config = timeSettings.jamPulangConfigs.find((c: any) => c.classes.includes(student.class_name));
+                if (config) {
+                  jamPulang = config.time;
+                }
+              }
+
+              const [outH, outM] = jamPulang.split(':').map(Number);
+              const masukMins = inH * 60 + inM;
+              const pulangMins = outH * 60 + outM;
+
+              const midpoint = (masukMins + pulangMins) / 2;
+              const isPulang = scanTimeMins >= midpoint;
+
+              // Determine status for entry scan
+              const isLate = scanTimeMins > masukMins + (timeSettings.toleransiKeterlambatan || 0);
+              const status = isLate ? 'Terlambat' : 'Hadir';
+              
+              const notesValue = `Discan oleh: ${scannerName}`;
+
               // Check if already scanned today
               const { data: existingAttendance, error: selectError } = await supabase
                 .from('attendance')
@@ -93,32 +138,66 @@ export default function ScanQR() {
               let hasError = false;
 
               if (existingAttendance) {
-                // Update time_out for subsequent scans
-                const { error: updateError } = await supabase
-                  .from('attendance')
-                  .update({ time_out: time })
-                  .eq('id', existingAttendance.id);
-                  
-                if (updateError) {
-                  console.error("Update error:", updateError);
-                  hasError = true;
+                if (isPulang) {
+                  // Update time_out for exit scan
+                  const { error: updateError } = await supabase
+                    .from('attendance')
+                    .update({ time_out: time, notes: notesValue })
+                    .eq('id', existingAttendance.id);
+                    
+                  if (updateError) {
+                    console.error("Update error:", updateError);
+                    hasError = true;
+                  } else {
+                    message = 'Waktu pulang dicatat.';
+                  }
                 } else {
-                  message = 'Waktu pulang (scan terakhir) diperbarui.';
+                  // It's still entry time, maybe updating the time_in or just ignoring?
+                  // We can just update time_in and status
+                  const { error: updateError } = await supabase
+                    .from('attendance')
+                    .update({ time_in: time, status: status, notes: notesValue })
+                    .eq('id', existingAttendance.id);
+                  if (updateError) {
+                    console.error("Update error:", updateError);
+                    hasError = true;
+                  } else {
+                    message = `Waktu masuk diperbarui (${status}).`;
+                  }
                 }
               } else {
-                // Insert time_in for first scan
-                const { error: insertError } = await supabase.from('attendance').insert([{
-                  student_id: student.id,
-                  date: today,
-                  time_in: time,
-                  status: 'Hadir'
-                }]);
-                
-                if (insertError) {
-                  console.error("Insert error:", insertError);
-                  hasError = true;
+                if (isPulang) {
+                  // First scan of the day, but it's already exit time
+                  const { error: insertError } = await supabase.from('attendance').insert([{
+                    student_id: student.id,
+                    date: today,
+                    time_out: time,
+                    status: 'Hadir', // They might be present but forgot to scan in
+                    notes: notesValue
+                  }]);
+                  
+                  if (insertError) {
+                    console.error("Insert error:", insertError);
+                    hasError = true;
+                  } else {
+                    message = 'Waktu pulang dicatat (Tanpa scan masuk).';
+                  }
                 } else {
-                  message = 'Waktu masuk (scan pertama) dicatat.';
+                  // Normal entry scan
+                  const { error: insertError } = await supabase.from('attendance').insert([{
+                    student_id: student.id,
+                    date: today,
+                    time_in: time,
+                    status: status,
+                    notes: notesValue
+                  }]);
+                  
+                  if (insertError) {
+                    console.error("Insert error:", insertError);
+                    hasError = true;
+                  } else {
+                    message = `Waktu masuk dicatat (${status}).`;
+                  }
                 }
               }
 
@@ -134,6 +213,18 @@ export default function ScanQR() {
                   className: student.class_name,
                   time: time,
                   message: message
+                });
+                
+                // Add to recent scans
+                setRecentScans(prev => {
+                  const newScans = [{
+                    id: Date.now().toString(),
+                    studentName: student.name,
+                    className: student.class_name,
+                    time: time,
+                    status: isPulang ? 'Pulang' : status
+                  }, ...prev];
+                  return newScans.slice(0, 10); // Keep last 10
                 });
               }
             } catch (dbError) {
@@ -253,6 +344,34 @@ export default function ScanQR() {
         <div className="shrink-0 mt-0.5">ℹ️</div>
         <p>Pastikan pencahayaan cukup. Kamera akan otomatis mendeteksi QR Code dan mencatat presensi seketika.</p>
       </div>
+
+      {recentScans.length > 0 && (
+        <div className="mt-6 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+          <h3 className="font-bold text-gray-900 mb-4 flex items-center justify-between">
+            <span>Riwayat Scan ({scannerName})</span>
+            <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">{recentScans.length} terbaru</span>
+          </h3>
+          <div className="space-y-3">
+            {recentScans.map((scan) => (
+              <div key={scan.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100">
+                <div>
+                  <div className="font-bold text-sm text-gray-900">{scan.studentName}</div>
+                  <div className="text-xs text-gray-500">{scan.className}</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-bold text-sm text-gray-900">{scan.time}</div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                    scan.status === 'Hadir' ? 'bg-green-100 text-green-700' : 
+                    scan.status === 'Pulang' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+                  }`}>
+                    {scan.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,6 +21,12 @@ export default function Settings() {
   const [classes, setClasses] = useState<any[]>([]);
   const [newClass, setNewClass] = useState('');
   const [isAddingClass, setIsAddingClass] = useState(false);
+  const [timeSettings, setTimeSettings] = useState<any>({
+    jamMasuk: '07:00',
+    jamPulang: '12:00', // legacy fallback
+    jamPulangConfigs: [{ id: '1', time: '12:00', classes: [] }],
+    toleransiKeterlambatan: 15
+  });
 
   useEffect(() => {
     fetchHolidays();
@@ -29,6 +35,10 @@ export default function Settings() {
     const storedIdentity = localStorage.getItem('school_identity');
     if (storedIdentity) {
       setSchoolIdentity(JSON.parse(storedIdentity));
+    }
+    const storedTimeSettings = localStorage.getItem('time_settings');
+    if (storedTimeSettings) {
+      setTimeSettings(JSON.parse(storedTimeSettings));
     }
   }, []);
 
@@ -162,6 +172,7 @@ export default function Settings() {
 
   const handleSaveAllSettings = () => {
     localStorage.setItem('school_identity', JSON.stringify(schoolIdentity));
+    localStorage.setItem('time_settings', JSON.stringify(timeSettings));
     alert('Pengaturan berhasil disimpan!');
   };
 
@@ -215,6 +226,111 @@ export default function Settings() {
                 <label className="text-sm font-bold text-gray-700 ml-1">Alamat</label>
                 <textarea rows={3} placeholder="Alamat lengkap sekolah..." value={schoolIdentity.address} onChange={e => setSchoolIdentity({...schoolIdentity, address: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm"></textarea>
               </div>
+            </div>
+          </section>
+
+          {/* Bagian Waktu Presensi */}
+          <section>
+            <h2 className="text-lg font-bold text-gray-900 mb-4 pb-2 border-b border-gray-100 flex justify-between items-center">
+              Pengaturan Waktu Presensi
+            </h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+              <div className="space-y-1.5">
+                <label className="text-sm font-bold text-gray-700 ml-1">Jam Masuk</label>
+                <input 
+                  type="time" 
+                  value={timeSettings.jamMasuk} 
+                  onChange={e => setTimeSettings({...timeSettings, jamMasuk: e.target.value})} 
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm font-medium" 
+                />
+                <p className="text-[11px] text-gray-500 ml-1 mt-1">Acuan untuk mendeteksi scan masuk.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-bold text-gray-700 ml-1">Toleransi Keterlambatan (menit)</label>
+                <input 
+                  type="number" 
+                  min="0"
+                  value={timeSettings.toleransiKeterlambatan} 
+                  onChange={e => setTimeSettings({...timeSettings, toleransiKeterlambatan: parseInt(e.target.value) || 0})} 
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm" 
+                />
+                <p className="text-[11px] text-gray-500 ml-1 mt-1">Lebih dari ini dianggap terlambat.</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-gray-700 text-sm">Pengaturan Jam Pulang</h3>
+                <button 
+                  onClick={() => {
+                    const newConfigs = [...(timeSettings.jamPulangConfigs || [])];
+                    newConfigs.push({ id: Date.now().toString(), time: '12:00', classes: [] });
+                    setTimeSettings({...timeSettings, jamPulangConfigs: newConfigs});
+                  }}
+                  className="text-sm font-bold text-primary hover:text-primary-dark flex items-center gap-1"
+                >
+                  <Plus size={16} /> Tambah Jam Pulang
+                </button>
+              </div>
+
+              {(timeSettings.jamPulangConfigs || []).map((config: any, index: number) => (
+                <div key={config.id} className="p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                  <div className="flex flex-col sm:flex-row gap-4 mb-3">
+                    <div className="w-full sm:w-1/3">
+                      <label className="text-xs font-bold text-gray-600 block mb-1">Jam Pulang</label>
+                      <input 
+                        type="time" 
+                        value={config.time} 
+                        onChange={e => {
+                          const newConfigs = [...timeSettings.jamPulangConfigs];
+                          newConfigs[index].time = e.target.value;
+                          setTimeSettings({...timeSettings, jamPulangConfigs: newConfigs});
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium"
+                      />
+                    </div>
+                    <div className="w-full sm:w-2/3">
+                      <label className="text-xs font-bold text-gray-600 block mb-1">Berlaku untuk Kelas</label>
+                      <div className="flex flex-wrap gap-2">
+                        {classes.map(c => (
+                          <label key={c.id} className="flex items-center gap-1 bg-white px-2 py-1 border border-gray-200 rounded cursor-pointer hover:bg-gray-50">
+                            <input 
+                              type="checkbox" 
+                              checked={config.classes.includes(c.name)}
+                              onChange={e => {
+                                const newConfigs = [...timeSettings.jamPulangConfigs];
+                                if (e.target.checked) {
+                                  newConfigs[index].classes.push(c.name);
+                                } else {
+                                  newConfigs[index].classes = newConfigs[index].classes.filter((name: string) => name !== c.name);
+                                }
+                                setTimeSettings({...timeSettings, jamPulangConfigs: newConfigs});
+                              }}
+                              className="text-primary rounded focus:ring-primary"
+                            />
+                            <span className="text-xs text-gray-700">{c.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const newConfigs = timeSettings.jamPulangConfigs.filter((_: any, i: number) => i !== index);
+                        setTimeSettings({...timeSettings, jamPulangConfigs: newConfigs});
+                      }}
+                      className="self-start mt-6 text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {(!timeSettings.jamPulangConfigs || timeSettings.jamPulangConfigs.length === 0) && (
+                <div className="text-center p-4 bg-gray-50 rounded-xl border border-gray-200 border-dashed text-sm text-gray-500">
+                  Belum ada pengaturan jam pulang khusus kelas.
+                </div>
+              )}
             </div>
           </section>
 

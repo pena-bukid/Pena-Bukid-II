@@ -180,9 +180,13 @@ export default function Dashboard() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-900 text-sm truncate">{scan.students?.name}</p>
                     <p className="text-xs text-gray-500">Kelas {scan.students?.class_name}</p>
+                    {scan.notes && <p className="text-[10px] text-gray-400 mt-0.5">{scan.notes}</p>}
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-sm text-gray-900">{scan.time_in}{scan.time_out ? ` - ${scan.time_out}` : ''}</p>
+                    <p className="font-bold text-sm text-gray-900">
+                      {scan.time_in ? scan.time_in : '--:--'}
+                      {scan.time_out ? ` - ${scan.time_out}` : ''}
+                    </p>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                       scan.status === 'hadir' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
                     }`}>

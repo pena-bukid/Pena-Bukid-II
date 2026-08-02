@@ -31,6 +31,7 @@ export default function StudentDetail() {
 
   const [student, setStudent] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [availableMonths, setAvailableMonths] = useState<{month: string, year: string, label: string}[]>([]);
 
   useEffect(() => {
     if (id) {
@@ -38,9 +39,59 @@ export default function StudentDetail() {
     }
   }, [id]);
 
+  const generateMonths = (startDate: string, endDate: string) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const months = [];
+    const monthNames = ["Januari", "Februari", "Maret", "April", "Mei", "Juni",
+      "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+    
+    let current = new Date(start.getFullYear(), start.getMonth(), 1);
+    const endLimit = new Date(end.getFullYear(), end.getMonth(), 1);
+
+    while (current <= endLimit) {
+      months.push({
+        month: String(current.getMonth() + 1).padStart(2, '0'),
+        year: String(current.getFullYear()),
+        label: `${monthNames[current.getMonth()]} ${current.getFullYear()}`
+      });
+      current.setMonth(current.getMonth() + 1);
+    }
+    return months;
+  };
+
   const fetchData = async () => {
     const { data: studentData } = await supabase.from('students').select('*').eq('id', id).single();
     if (studentData) setStudent(studentData);
+
+    let monthsList: any[] = [];
+    if (studentData?.academic_year) {
+      const { data: academicYear } = await supabase.from('academic_years').select('*').eq('id', studentData.academic_year).maybeSingle();
+      if (academicYear && academicYear.start_date && academicYear.end_date) {
+        monthsList = generateMonths(academicYear.start_date, academicYear.end_date);
+      }
+    } else {
+      const { data: activeYears } = await supabase.from('academic_years').select('*').eq('is_active', true).limit(1);
+      if (activeYears && activeYears.length > 0 && activeYears[0].start_date && activeYears[0].end_date) {
+        monthsList = generateMonths(activeYears[0].start_date, activeYears[0].end_date);
+      }
+    }
+    
+    if (monthsList.length > 0) {
+      setAvailableMonths(monthsList);
+      const now = new Date();
+      const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+      const currentYear = String(now.getFullYear());
+      
+      const exists = monthsList.find(m => m.month === currentMonth && m.year === currentYear);
+      if (exists) {
+        setSelectedMonth(currentMonth);
+        setSelectedYear(currentYear);
+      } else {
+        setSelectedMonth(monthsList[monthsList.length - 1].month); // Select the latest month by default
+        setSelectedYear(monthsList[monthsList.length - 1].year);
+      }
+    }
 
     const { data: attendanceData } = await supabase.from('attendance').select('*').eq('student_id', id).order('date', { ascending: false });
     if (attendanceData) setHistory(attendanceData);
@@ -81,6 +132,15 @@ export default function StudentDetail() {
       }
     ],
   };
+
+  const filteredHistory = history.filter(record => {
+    const date = new Date(record.date);
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const y = String(date.getFullYear());
+    return m === selectedMonth && y === selectedYear;
+  });
+
+  const selectedMonthLabel = availableMonths.find(m => m.month === selectedMonth && m.year === selectedYear)?.label || `${selectedMonth} ${selectedYear}`;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-8">
@@ -221,21 +281,23 @@ export default function StudentDetail() {
               
               <div className="flex gap-2 w-full sm:w-auto">
                 <select 
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  value={`${selectedMonth}-${selectedYear}`}
+                  onChange={(e) => {
+                    const [m, y] = e.target.value.split('-');
+                    setSelectedMonth(m);
+                    setSelectedYear(y);
+                  }}
                   className="px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm font-medium shadow-sm w-full sm:w-auto"
                 >
-                  <option value="07">Juli</option>
-                  <option value="08">Agustus</option>
-                  <option value="09">September</option>
-                </select>
-                <select 
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(e.target.value)}
-                  className="px-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm font-medium shadow-sm w-full sm:w-auto"
-                >
-                  <option value="2023">2023</option>
-                  <option value="2024">2024</option>
+                  {availableMonths.length > 0 ? (
+                    availableMonths.map(m => (
+                      <option key={`${m.month}-${m.year}`} value={`${m.month}-${m.year}`}>
+                        {m.label}
+                      </option>
+                    ))
+                  ) : (
+                    <option value={`${selectedMonth}-${selectedYear}`}>{selectedMonthLabel}</option>
+                  )}
                 </select>
               </div>
             </div>
@@ -252,7 +314,7 @@ export default function StudentDetail() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {history.map((record) => (
+                  {filteredHistory.map((record) => (
                     <tr key={record.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-5 py-4">
                         <div className="font-medium text-gray-900 flex items-center gap-2">
@@ -260,8 +322,8 @@ export default function StudentDetail() {
                           {new Date(record.date).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' })}
                         </div>
                       </td>
-                      <td className="px-5 py-4 text-gray-600 font-mono text-xs">{record.time_in}</td>
-                      <td className="px-5 py-4 text-gray-600 font-mono text-xs">{record.time_out}</td>
+                      <td className="px-5 py-4 text-gray-600 font-mono text-xs">{record.time_in || '--:--'}</td>
+                      <td className="px-5 py-4 text-gray-600 font-mono text-xs">{record.time_out || '--:--'}</td>
                       <td className="px-5 py-4">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
                           record.status === 'Hadir' ? 'bg-green-100 text-green-700 border border-green-200' : 
@@ -280,7 +342,7 @@ export default function StudentDetail() {
             </div>
             
             <div className="p-4 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500 bg-gray-50/30">
-              <div>Menampilkan 5 data presensi bulan Agustus 2023</div>
+              <div>Menampilkan {filteredHistory.length} data presensi bulan {selectedMonthLabel}</div>
             </div>
           </motion.div>
         </div>
