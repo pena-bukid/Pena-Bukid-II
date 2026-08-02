@@ -1,0 +1,10 @@
+{
+  "name": "Pena Bukid 2",
+  "description": "Presensi Elektronik Anak UPT SD Negeri Bugulkidul II",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
