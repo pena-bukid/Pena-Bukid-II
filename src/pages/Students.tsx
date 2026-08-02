@@ -17,14 +17,38 @@ export default function Students() {
     name: '',
     nisn: '',
     gender: 'L',
-    class_name: 'Kelas 1A'
+    class_name: 'Kelas 1',
+    academic_year: ''
   });
 
   const [isTeacher, setIsTeacher] = useState(false);
+  const [classes, setClasses] = useState<string[]>([]);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [activeYearId, setActiveYearId] = useState('');
+  const [academicYears, setAcademicYears] = useState<any[]>([]);
 
   useEffect(() => {
     fetchStudents();
     setIsTeacher(!!localStorage.getItem('teacher_session'));
+    
+    supabase.from('classes').select('*').order('name').then(({data}) => {
+      if (data && data.length > 0) {
+        const cls = data.map((c: any) => c.name);
+        setClasses(cls);
+        setFormData(prev => ({ ...prev, class_name: cls[0] }));
+      } else {
+        const defaultClasses = ['Kelas 1', 'Kelas 2', 'Kelas 3', 'Kelas 4', 'Kelas 5', 'Kelas 6'];
+        setClasses(defaultClasses);
+        setFormData(prev => ({ ...prev, class_name: defaultClasses[0] }));
+      }
+    });
+
+    supabase.from('academic_years').select('id').eq('is_active', true).limit(1).then(({data}) => {
+      if (data && data.length > 0) {
+        setActiveYearId(data[0].id);
+      }
+    });
   }, []);
 
   const fetchStudents = async () => {
@@ -51,7 +75,7 @@ export default function Students() {
   };
 
   const handleDownloadTemplate = () => {
-    const csvContent = "data:text/csv;charset=utf-8,NISN,Nama Murid,Jenis Kelamin(L/P),Kelas\n1234567890,Budi Santoso,L,Kelas 1A\n0987654321,Siti Aminah,P,Kelas 1A";
+    const csvContent = "data:text/csv;charset=utf-8,NISN,Nama Murid,Jenis Kelamin(L/P),Kelas,Tahun Ajaran\n1234567890,Budi Santoso,L,Kelas 1,2024/2025\n0987654321,Siti Aminah,P,Kelas 1,2024/2025";
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -62,7 +86,54 @@ export default function Students() {
   };
 
   const handleImport = () => {
-    alert("Fitur import Excel/CSV sedang dalam pengembangan.");
+    setShowImportModal(true);
+  };
+
+  const processImport = async () => {
+    if (!importText.trim()) return;
+    
+    // Parse CSV (simple split by newline and comma)
+    const lines = importText.trim().split('\n');
+    // Skip header line if it contains 'NISN'
+    const startIndex = lines[0].toLowerCase().includes('nisn') ? 1 : 0;
+    
+    const newStudents = [];
+    for (let i = startIndex; i < lines.length; i++) {
+      const parts = lines[i].split(',').map(p => p.trim());
+      if (parts.length >= 4) {
+        let ayId = activeYearId || null;
+        if (parts[4]) {
+          const match = academicYears.find(y => y.name.toLowerCase() === parts[4].toLowerCase());
+          if (match) ayId = match.id;
+        }
+        newStudents.push({
+          nisn: parts[0],
+          name: parts[1],
+          gender: parts[2] === 'P' ? 'P' : 'L',
+          class_name: parts[3],
+          academic_year: ayId,
+          status: 'Aktif'
+        });
+      }
+    }
+    
+    if (newStudents.length > 0) {
+      try {
+        const { data, error } = await supabase.from('students').insert(newStudents).select();
+        if (error) {
+          console.warn('DB error, using local fallback', error.message);
+          const localStudents = newStudents.map(s => ({ ...s, id: Math.random().toString(), created_at: new Date().toISOString() }));
+          setStudents([...localStudents, ...students]);
+        } else if (data) {
+          setStudents([...data, ...students]);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+    
+    setImportText('');
+    setShowImportModal(false);
   };
 
   const handleSaveStudent = async () => {
@@ -71,6 +142,7 @@ export default function Students() {
       nisn: formData.nisn,
       gender: formData.gender,
       class_name: formData.class_name,
+      academic_year: formData.academic_year || activeYearId || null,
       status: 'Aktif'
     };
     
@@ -82,7 +154,7 @@ export default function Students() {
         const localStudent = { ...newStudent, id: Date.now().toString(), created_at: new Date().toISOString() };
         setStudents([localStudent, ...students]);
         setShowAddModal(false);
-        setFormData({ name: '', nisn: '', gender: 'L', class_name: 'Kelas 1A' });
+        setFormData({ name: '', nisn: '', gender: 'L', class_name: classes[0] || 'Kelas 1', academic_year: activeYearId });
         alert('Data disimpan di memori lokal (Database Supabase belum siap/kolom tidak cocok).');
         return;
       }
@@ -90,14 +162,14 @@ export default function Students() {
       if (data) {
         setStudents([...data, ...students]);
         setShowAddModal(false);
-        setFormData({ name: '', nisn: '', gender: 'L', class_name: 'Kelas 1A' });
+        setFormData({ name: '', nisn: '', gender: 'L', class_name: classes[0] || 'Kelas 1', academic_year: activeYearId });
       }
     } catch (err: any) {
       console.warn('Exception, using local state fallback:', err.message);
       const localStudent = { ...newStudent, id: Date.now().toString(), created_at: new Date().toISOString() };
       setStudents([localStudent, ...students]);
       setShowAddModal(false);
-      setFormData({ name: '', nisn: '', gender: 'L', class_name: 'Kelas 1A' });
+      setFormData({ name: '', nisn: '', gender: 'L', class_name: classes[0] || 'Kelas 1', academic_year: activeYearId });
       alert('Data disimpan di memori lokal (Koneksi ke Database gagal).');
     }
   };
@@ -118,10 +190,11 @@ export default function Students() {
     }
   };
 
-  const filteredStudents = students.filter(s => 
-    s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    s.nisn?.includes(searchTerm)
-  );
+  const filteredStudents = students.filter(s => {
+    const matchesSearch = s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || s.nisn?.includes(searchTerm);
+    const matchesYear = activeYearId ? s.academic_year === activeYearId : true;
+    return matchesSearch && matchesYear;
+  });
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -315,12 +388,21 @@ export default function Students() {
                       onChange={(e) => setFormData({...formData, class_name: e.target.value})}
                       className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm"
                     >
-                      <option value="Kelas 1A">Kelas 1A</option>
-                      <option value="Kelas 2A">Kelas 2A</option>
-                      <option value="Kelas 3A">Kelas 3A</option>
-                      <option value="Kelas 4A">Kelas 4A</option>
-                      <option value="Kelas 5A">Kelas 5A</option>
-                      <option value="Kelas 6A">Kelas 6A</option>
+                      {classes.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2 mt-2">
+                    <label className="text-sm font-bold text-gray-700 ml-1">Tahun Ajaran</label>
+                    <select 
+                      value={formData.academic_year}
+                      onChange={(e) => setFormData({...formData, academic_year: e.target.value})}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm"
+                    >
+                      {academicYears.map(y => (
+                        <option key={y.id} value={y.id}>{y.name}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -339,6 +421,78 @@ export default function Students() {
                   className="px-5 py-2.5 text-sm font-bold text-white bg-primary rounded-xl hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Simpan Murid
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Import Modal */}
+      <AnimatePresence>
+        {showImportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowImportModal(false)}
+              className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"
+            />
+            
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl relative z-10 w-full max-w-lg overflow-hidden border border-gray-100"
+            >
+              <div className="px-6 py-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h3 className="font-bold text-gray-900 text-lg">Import Data Murid</h3>
+                <button 
+                  onClick={() => setShowImportModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600 bg-white rounded-full shadow-sm"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-4">
+                <div className="p-4 bg-blue-50 text-blue-800 text-sm rounded-xl border border-blue-100">
+                  <p className="font-bold mb-1">Panduan Import:</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>Gunakan file CSV atau copy-paste dari Excel.</li>
+                    <li>Format kolom: <strong>NISN, Nama Lengkap, Jenis Kelamin (L/P), Kelas, Tahun Ajaran</strong></li>
+                    <li>Pisahkan kolom dengan koma (,).</li>
+                    <li>Pastikan nama kelas sesuai dengan daftar kelas di pengaturan.</li>
+                  </ul>
+                </div>
+                
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-gray-700 ml-1">Data CSV / Excel (Paste disini)</label>
+                  <textarea 
+                    value={importText}
+                    onChange={(e) => setImportText(e.target.value)}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm font-mono"
+                    rows={8}
+                    placeholder="Contoh:&#10;1234567890, Budi Santoso, L, Kelas 1, 2024/2025&#10;0987654321, Siti Aminah, P, Kelas 2, 2024/2025"
+                  ></textarea>
+                </div>
+              </div>
+
+              <div className="p-4 border-t border-gray-100 flex justify-end gap-2 bg-gray-50/50">
+                <button 
+                  onClick={() => setShowImportModal(false)} 
+                  className="px-5 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-800 bg-white border border-gray-200 rounded-xl transition-colors"
+                >
+                  Batal
+                </button>
+                <button 
+                  onClick={processImport} 
+                  disabled={!importText.trim()}
+                  className="px-5 py-2.5 text-sm font-bold text-white bg-primary rounded-xl hover:bg-primary-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <FileSpreadsheet size={18} />
+                  Proses Import
                 </button>
               </div>
             </motion.div>

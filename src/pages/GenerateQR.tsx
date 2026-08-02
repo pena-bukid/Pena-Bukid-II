@@ -65,7 +65,8 @@ const StudentCard = ({ student, cardRef, onSelect, isSelected, selectable }: any
 
 
 export default function GenerateQR() {
-  const [selectedClass, setSelectedClass] = useState('6A');
+  const [classes, setClasses] = useState<string[]>([]);
+  const [selectedClass, setSelectedClass] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isPrintMode, setIsPrintMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -73,8 +74,25 @@ export default function GenerateQR() {
   const [previewStudents, setPreviewStudents] = useState<any[]>([]);
 
   const [students, setStudents] = useState<any[]>([]);
+  const [activeYearId, setActiveYearId] = useState('');
 
   useEffect(() => {
+    supabase.from('academic_years').select('id').eq('is_active', true).limit(1).then(({data}) => {
+      if (data && data.length > 0) {
+        setActiveYearId(data[0].id);
+      }
+    });
+    supabase.from('classes').select('*').order('name').then(({data}) => {
+      if (data && data.length > 0) {
+        const cls = data.map((c: any) => c.name);
+        setClasses(cls);
+        setSelectedClass(cls[0]);
+      } else {
+        const cls = ['Kelas 1', 'Kelas 2', 'Kelas 3', 'Kelas 4', 'Kelas 5', 'Kelas 6'];
+        setClasses(cls);
+        setSelectedClass(cls[0]);
+      }
+    });
     fetchStudents();
   }, []);
 
@@ -83,9 +101,12 @@ export default function GenerateQR() {
     if (data) setStudents(data);
   };
 
-  const filteredStudents = students.filter(s => 
-    (s.class_name || s.class) === selectedClass && s.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredStudents = students.filter(s => {
+    const matchesClass = (s.class_name || s.class) === selectedClass;
+    const matchesSearch = s.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesYear = activeYearId ? s.academic_year === activeYearId : true;
+    return matchesClass && matchesSearch && matchesYear;
+  });
 
   const cardRefs = useRef<{[key: string]: HTMLDivElement | null}>({});
 

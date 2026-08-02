@@ -4,44 +4,131 @@ import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '../lib/supabase';
 
 export default function Settings() {
-  const [academicYears, setAcademicYears] = useState([
-    { id: '1', name: '2023/2024', startDate: '2023-07-15', endDate: '2024-06-20', isActive: false },
-    { id: '2', name: '2024/2025', startDate: '2024-07-15', endDate: '2025-06-20', isActive: true },
-  ]);
-  const [activeYearId, setActiveYearId] = useState('2');
+  const [schoolIdentity, setSchoolIdentity] = useState({
+    schoolName: 'UPT SD Negeri Bugulkidul II',
+    principalName: '',
+    address: ''
+  });
+  const [academicYears, setAcademicYears] = useState<any[]>([]);
+  const [activeYearId, setActiveYearId] = useState('');
   const [isAddingYear, setIsAddingYear] = useState(false);
-  const [newYear, setNewYear] = useState({ name: '', startDate: '', endDate: '' });
+  const [newYear, setNewYear] = useState({ name: '', start_date: '', end_date: '' });
 
   const [holidays, setHolidays] = useState<any[]>([]);
   const [isAddingHoliday, setIsAddingHoliday] = useState(false);
   const [newHoliday, setNewHoliday] = useState({ name: '', date: '' });
 
+  const [classes, setClasses] = useState<any[]>([]);
+  const [newClass, setNewClass] = useState('');
+  const [isAddingClass, setIsAddingClass] = useState(false);
+
   useEffect(() => {
     fetchHolidays();
+    fetchAcademicYears();
+    fetchClasses();
+    const storedIdentity = localStorage.getItem('school_identity');
+    if (storedIdentity) {
+      setSchoolIdentity(JSON.parse(storedIdentity));
+    }
   }, []);
+
+  const fetchAcademicYears = async () => {
+    try {
+      const { data } = await supabase.from('academic_years').select('*').order('start_date', { ascending: false });
+      if (data) {
+        setAcademicYears(data);
+        const active = data.find(y => y.is_active);
+        if (active) setActiveYearId(active.id);
+      }
+    } catch(e) {
+      console.warn("Could not fetch academic years");
+    }
+  };
+
+  const fetchClasses = async () => {
+    try {
+      const { data } = await supabase.from('classes').select('*').order('name');
+      if (data && data.length > 0) {
+        setClasses(data);
+      } else {
+        // Fallback for initial UI view if RLS fails or empty
+        const storedClasses = localStorage.getItem('school_classes');
+        if (storedClasses) {
+          setClasses(JSON.parse(storedClasses).map((c: string) => ({ id: c, name: c })));
+        } else {
+          setClasses([{id: '1', name: 'Kelas 1'}, {id: '2', name: 'Kelas 2'}]);
+        }
+      }
+    } catch(e) {
+      console.warn("Could not fetch classes");
+    }
+  };
 
   const fetchHolidays = async () => {
     const { data } = await supabase.from('holidays').select('*').order('date', { ascending: false });
     if (data) setHolidays(data);
   };
 
-  const handleAddYear = () => {
-    if (newYear.name && newYear.startDate && newYear.endDate) {
-      setAcademicYears([...academicYears, { ...newYear, id: Date.now().toString(), isActive: false }]);
-      setNewYear({ name: '', startDate: '', endDate: '' });
-      setIsAddingYear(false);
+  const handleAddYear = async () => {
+    if (newYear.name && newYear.start_date && newYear.end_date) {
+      // If it's the first one, make it active
+      const is_active = academicYears.length === 0;
+      try {
+        const { data, error } = await supabase.from('academic_years').insert([{
+          name: newYear.name,
+          start_date: newYear.start_date,
+          end_date: newYear.end_date,
+          is_active
+        }]).select();
+        
+        if (data && !error) {
+          setAcademicYears([...data, ...academicYears]);
+          if (is_active) setActiveYearId(data[0].id);
+          setNewYear({ name: '', start_date: '', end_date: '' });
+          setIsAddingYear(false);
+        } else {
+          alert('Gagal menyimpan (Pastikan RLS sudah diperbarui di Supabase)');
+        }
+      } catch (e) {
+        console.error(e);
+      }
     }
   };
 
-  const handleDeleteYear = (id: string) => {
-    setAcademicYears(academicYears.filter(y => y.id !== id));
-    if (activeYearId === id) setActiveYearId('');
+  const handleDeleteYear = async (id: string) => {
+    try {
+      const { error } = await supabase.from('academic_years').delete().eq('id', id);
+      if (!error) {
+        setAcademicYears(academicYears.filter(y => y.id !== id));
+        if (activeYearId === id) setActiveYearId('');
+      } else {
+        alert('Gagal menghapus');
+      }
+    } catch(e) {
+      console.error(e);
+    }
+  };
+
+  const handleSetActiveYear = async (id: string) => {
+    try {
+      // Set all to inactive first
+      await supabase.from('academic_years').update({ is_active: false }).neq('id', id);
+      // Set chosen to active
+      const { error } = await supabase.from('academic_years').update({ is_active: true }).eq('id', id);
+      if (!error) {
+        setActiveYearId(id);
+        const updated = academicYears.map(y => ({ ...y, is_active: y.id === id }));
+        setAcademicYears(updated);
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleAddHoliday = async () => {
     if (newHoliday.name && newHoliday.date) {
-      const { data } = await supabase.from('holidays').insert([{ name: newHoliday.name, date: newHoliday.date }]).select();
-      if (data) {
+      const { data, error } = await supabase.from('holidays').insert([{ name: newHoliday.name, date: newHoliday.date }]).select();
+      if (data && !error) {
         setHolidays([...data, ...holidays]);
         setNewHoliday({ name: '', date: '' });
         setIsAddingHoliday(false);
@@ -53,6 +140,39 @@ export default function Settings() {
     const { error } = await supabase.from('holidays').delete().eq('id', id);
     if (!error) {
       setHolidays(holidays.filter(h => h.id !== id));
+    }
+  };
+
+  const handleAddClass = async () => {
+    if (newClass.trim()) {
+      try {
+        const { data, error } = await supabase.from('classes').insert([{ name: newClass.trim() }]).select();
+        if (data && !error) {
+          setClasses([...classes, data[0]]);
+          setNewClass('');
+          setIsAddingClass(false);
+        } else {
+          alert('Gagal menyimpan (Pastikan RLS sudah diperbarui)');
+        }
+      } catch(e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleSaveAllSettings = () => {
+    localStorage.setItem('school_identity', JSON.stringify(schoolIdentity));
+    alert('Pengaturan berhasil disimpan!');
+  };
+
+  const handleDeleteClass = async (id: string) => {
+    try {
+      const { error } = await supabase.from('classes').delete().eq('id', id);
+      if (!error) {
+        setClasses(classes.filter(c => c.id !== id));
+      }
+    } catch(e) {
+      console.error(e);
     }
   };
 
@@ -85,15 +205,15 @@ export default function Settings() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="space-y-1.5">
                 <label className="text-sm font-bold text-gray-700 ml-1">Nama Sekolah</label>
-                <input type="text" defaultValue="UPT SD Negeri Bugulkidul II" className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm" />
+                <input type="text" value={schoolIdentity.schoolName} onChange={e => setSchoolIdentity({...schoolIdentity, schoolName: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-bold text-gray-700 ml-1">Nama Kepala Sekolah</label>
-                <input type="text" placeholder="Masukkan nama kepsek..." className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm" />
+                <input type="text" placeholder="Masukkan nama kepsek..." value={schoolIdentity.principalName} onChange={e => setSchoolIdentity({...schoolIdentity, principalName: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm" />
               </div>
               <div className="space-y-1.5 md:col-span-2">
                 <label className="text-sm font-bold text-gray-700 ml-1">Alamat</label>
-                <textarea rows={3} placeholder="Alamat lengkap sekolah..." className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm"></textarea>
+                <textarea rows={3} placeholder="Alamat lengkap sekolah..." value={schoolIdentity.address} onChange={e => setSchoolIdentity({...schoolIdentity, address: e.target.value})} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm"></textarea>
               </div>
             </div>
           </section>
@@ -109,7 +229,7 @@ export default function Settings() {
                 <label className="text-sm font-bold text-gray-700 ml-1">Tahun Ajaran Aktif</label>
                 <select 
                   value={activeYearId}
-                  onChange={(e) => setActiveYearId(e.target.value)}
+                  onChange={(e) => handleSetActiveYear(e.target.value)}
                   className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm font-medium"
                 >
                   <option value="" disabled>Pilih Tahun Ajaran</option>
@@ -162,8 +282,8 @@ export default function Settings() {
                         <label className="text-xs font-bold text-gray-600">Tgl Mulai</label>
                         <input 
                           type="date" 
-                          value={newYear.startDate}
-                          onChange={e => setNewYear({...newYear, startDate: e.target.value})}
+                          value={newYear.start_date}
+                          onChange={e => setNewYear({...newYear, start_date: e.target.value})}
                           className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm" 
                         />
                       </div>
@@ -171,8 +291,8 @@ export default function Settings() {
                         <label className="text-xs font-bold text-gray-600">Tgl Selesai</label>
                         <input 
                           type="date" 
-                          value={newYear.endDate}
-                          onChange={e => setNewYear({...newYear, endDate: e.target.value})}
+                          value={newYear.end_date}
+                          onChange={e => setNewYear({...newYear, end_date: e.target.value})}
                           className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm" 
                         />
                       </div>
@@ -196,7 +316,7 @@ export default function Settings() {
                           {activeYearId === year.id && <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full font-bold">Aktif Saat Ini</span>}
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
-                          {new Date(year.startDate).toLocaleDateString('id-ID')} - {new Date(year.endDate).toLocaleDateString('id-ID')}
+                          {new Date(year.start_date).toLocaleDateString('id-ID')} - {new Date(year.end_date).toLocaleDateString('id-ID')}
                         </div>
                       </div>
                     </div>
@@ -303,9 +423,75 @@ export default function Settings() {
               )}
             </div>
           </section>
+
+          {/* Bagian 4: Pengaturan Kelas */}
+          <section>
+            <h2 className="text-lg font-bold text-gray-900 mb-4 pb-2 border-b border-gray-100 flex justify-between items-center">
+              Daftar Kelas
+            </h2>
+            
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <h3 className="font-bold text-gray-700 text-sm">Kelas yang tersedia</h3>
+                <button 
+                  onClick={() => setIsAddingClass(!isAddingClass)}
+                  className="text-sm font-bold text-primary hover:text-primary-dark flex items-center gap-1"
+                >
+                  <Plus size={16} /> Tambah Kelas
+                </button>
+              </div>
+
+              <AnimatePresence>
+                {isAddingClass && (
+                  <motion.div 
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="bg-gray-50 p-4 rounded-2xl border border-gray-200 mb-4 overflow-hidden"
+                  >
+                    <div className="mb-3 space-y-1">
+                      <label className="text-xs font-bold text-gray-600">Nama Kelas (Contoh: Kelas 1A)</label>
+                      <input 
+                        type="text" 
+                        value={newClass}
+                        onChange={e => setNewClass(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm" 
+                        placeholder="Masukkan nama kelas..."
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => setIsAddingClass(false)} className="px-3 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-700 bg-white border border-gray-200 rounded-lg">Batal</button>
+                      <button onClick={handleAddClass} className="px-3 py-1.5 text-sm font-bold text-white bg-primary rounded-lg hover:bg-primary-dark">Simpan Kelas</button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {classes.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {classes.map((c: any) => (
+                    <div key={c.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-xl hover:border-primary/50 transition-colors shadow-sm">
+                      <span className="font-bold text-gray-800 text-sm">{c.name}</span>
+                      <button 
+                        onClick={() => handleDeleteClass(c.id)}
+                        className="text-gray-400 hover:text-red-500 transition-colors"
+                        title="Hapus Kelas"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center p-6 bg-gray-50 rounded-2xl border border-gray-200 border-dashed text-sm text-gray-500">
+                  Belum ada kelas yang ditambahkan.
+                </div>
+              )}
+            </div>
+          </section>
           
           <div className="pt-6 border-t border-gray-100 flex justify-end">
-            <button type="button" className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-xl shadow-md shadow-primary/30 text-sm font-bold hover:bg-primary-dark transition-colors animate-shimmer">
+            <button type="button" onClick={handleSaveAllSettings} className="flex items-center gap-2 px-6 py-2.5 bg-primary text-white rounded-xl shadow-md shadow-primary/30 text-sm font-bold hover:bg-primary-dark transition-colors animate-shimmer">
               <Save size={18} /> Simpan Pengaturan
             </button>
           </div>

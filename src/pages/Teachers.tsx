@@ -14,9 +14,18 @@ export default function Teachers() {
   });
 
   const [teachers, setTeachers] = useState<any[]>([]);
+  const [classes, setClasses] = useState<string[]>([]);
 
   useEffect(() => {
     fetchTeachers();
+    
+    supabase.from('classes').select('*').order('name').then(({data}) => {
+      if (data && data.length > 0) {
+        setClasses(data.map((c: any) => c.name));
+      } else {
+        setClasses(['Kelas 1', 'Kelas 2', 'Kelas 3', 'Kelas 4', 'Kelas 5', 'Kelas 6']);
+      }
+    });
   }, []);
 
   const fetchTeachers = async () => {
@@ -244,12 +253,9 @@ export default function Teachers() {
                     className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-primary/20 text-sm"
                   >
                     <option value="">Bukan Wali Kelas</option>
-                    <option value="Kelas 1A">Kelas 1A</option>
-                    <option value="Kelas 2A">Kelas 2A</option>
-                    <option value="Kelas 3A">Kelas 3A</option>
-                    <option value="Kelas 4A">Kelas 4A</option>
-                    <option value="Kelas 5A">Kelas 5A</option>
-                    <option value="Kelas 6A">Kelas 6A</option>
+                    {classes.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
                   </select>
                 </div>
 
