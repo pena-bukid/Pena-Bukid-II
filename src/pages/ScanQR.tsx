@@ -15,6 +15,7 @@ export default function ScanQR() {
   
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isProcessingRef = useRef(false);
 
   // Sound effects
   const playSuccessSound = () => {
@@ -41,16 +42,30 @@ export default function ScanQR() {
           qrbox: { width: 250, height: 250 },
         },
         async (decodedText) => {
+          if (isProcessingRef.current) return;
+          isProcessingRef.current = true;
+          
           // Handle successful scan
-          if (scannerRef.current) {
-            scannerRef.current.pause(true); // Pause scanning while processing
-          }
+          // (We removed pausing so the camera keeps visually running, we just ignore scans while processing)
+
           
           if (navigator.vibrate) navigator.vibrate(200);
           playSuccessSound();
 
           // Find student by token
-          const { data: student } = await supabase.from('students').select('*').eq('token', decodedText).single();
+          // Search by nisn (or token fallback)
+                    let student = null;
+          try {
+            const { data: studentByNisn } = await supabase.from('students').select('*').eq('nisn', decodedText).maybeSingle();
+            if (studentByNisn) {
+              student = studentByNisn;
+            } else {
+              const { data: studentByToken } = await supabase.from('students').select('*').eq('token', decodedText).maybeSingle();
+              student = studentByToken;
+            }
+          } catch(e) {
+            console.error(e);
+          }
           
           if (student) {
             const today = new Date().toISOString().split('T')[0];
@@ -81,10 +96,8 @@ export default function ScanQR() {
           // Auto resume after 3 seconds
           setTimeout(() => {
             setScanResult(null);
-            if (scannerRef.current && scannerRef.current.getState() === 2) { // 2 = PAUSED
-              scannerRef.current.resume();
-            }
-          }, 3000);
+            isProcessingRef.current = false;
+          }, 1500);
         },
         (errorMessage) => {
           // Ignore general scan errors (happens every frame when no QR is in view)
